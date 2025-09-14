@@ -1,0 +1,65 @@
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    environment:
+      - CLICKHOUSE_DB=photos
+      - CLICKHOUSE_USER=app
+      - CLICKHOUSE_PASSWORD=supersecret   # pick your own
+      - CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1
+    volumes:
+      - ch_data:/var/lib/clickhouse
+      - ./clickhouse/init:/docker-entrypoint-initdb.d
+      - ./clickhouse/users.d:/etc/clickhouse-server/users.d
+
+    ports:
+      - "8123:8123"      # HTTP
+      # removed "9000:9000" to avoid conflict with MinIO
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-admin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-admin12345}
+    volumes: [minio_data:/data]
+    ports:
+      - "9000:9000"      # S3 API
+      - "9001:9001"      # Console
+    restart: unless-stopped
+
+  app:
+    build: ./app
+    env_file: ./.env
+    depends_on: [clickhouse, minio]
+    ports: ["8080:8080"]
+    volumes:
+      - photos:/photos:ro
+    restart: unless-stopped
+
+  ingest:
+    build: ./ingest
+    env_file: ./.env
+    depends_on: [clickhouse, minio]
+    volumes:
+      - photos:/photos:ro
+    restart: unless-stopped
+
+  dagster:
+    build: ./dagster
+    env_file: ./.env
+    depends_on: [clickhouse, app]
+    ports: ["3000:3000"]
+    volumes: ["./dagster:/opt/dagster"]
+    restart: unless-stopped
+
+volumes:
+  photos:
+    driver: local
+    driver_opts:
+      type: cifs
+      device: "//192.168.50.52/Storage"
+      # Use env vars for credentials (create UNRAID_USER/UNRAID_PASS in .env)
+      o: "username=${UNRAID_USER},password=${UNRAID_PASS},vers=3.1.1,uid=1000,gid=1000,iocharset=utf8,noperm"
+  ch_data: {}
+  minio_data: {}

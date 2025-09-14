@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+.DS_Store
+
+# don’t bake local instance DB / logs into image
+storage/
+compute_logs/
+artifacts/
