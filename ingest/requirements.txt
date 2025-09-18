@@ -1,1 +1,5 @@
-# TBD
+Pillow==10.4.0
+pillow-heif==0.18.0
+imagehash==4.3.1
+clickhouse-connect==0.7.18
+minio==7.2.9
