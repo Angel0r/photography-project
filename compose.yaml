@@ -9,7 +9,6 @@ services:
     volumes:
       - ch_data:/var/lib/clickhouse
       - ./clickhouse/init:/docker-entrypoint-initdb.d
-      - ./clickhouse/users.d:/etc/clickhouse-server/users.d
 
     ports:
       - "8123:8123"      # HTTP
@@ -34,7 +33,7 @@ services:
     depends_on: [clickhouse, minio]
     ports: ["8080:8080"]
     volumes:
-      - photos:/photos:ro
+      - /mnt/unraid/storage/Photos:/photos:ro
     restart: unless-stopped
 
   ingest:
@@ -42,7 +41,7 @@ services:
     env_file: ./.env
     depends_on: [clickhouse, minio]
     volumes:
-      - photos:/photos:ro
+      - /mnt/unraid/storage/Photos:/photos:ro
     restart: unless-stopped
 
   dagster:
@@ -54,12 +53,5 @@ services:
     restart: unless-stopped
 
 volumes:
-  photos:
-    driver: local
-    driver_opts:
-      type: cifs
-      device: "//192.168.50.52/Storage"
-      # Use env vars for credentials (create UNRAID_USER/UNRAID_PASS in .env)
-      o: "username=${UNRAID_USER},password=${UNRAID_PASS},vers=3.1.1,uid=1000,gid=1000,iocharset=utf8,noperm"
   ch_data: {}
   minio_data: {}
