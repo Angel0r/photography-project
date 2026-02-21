@@ -4,16 +4,20 @@ services:
     environment:
       - CLICKHOUSE_DB=photos
       - CLICKHOUSE_USER=app
-      - CLICKHOUSE_PASSWORD=supersecret   # pick your own
+      - CLICKHOUSE_PASSWORD=supersecret
       - CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1
     volumes:
       - ch_data:/var/lib/clickhouse
       - ./clickhouse/init:/docker-entrypoint-initdb.d
-
     ports:
-      - "8123:8123"      # HTTP
-      # removed "9000:9000" to avoid conflict with MinIO
+      - "8123:8123"   # HTTP API
     restart: unless-stopped
+    healthcheck:
+      # Wait until queries work (no curl needed)
+      test: ["CMD-SHELL", "clickhouse-client -q 'SELECT 1'"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
 
   minio:
     image: minio/minio:latest
@@ -21,17 +25,31 @@ services:
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-admin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-admin12345}
-    volumes: [minio_data:/data]
+    volumes:
+      - minio_data:/data
     ports:
-      - "9000:9000"      # S3 API
-      - "9001:9001"      # Console
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # MinIO Console
     restart: unless-stopped
 
   app:
     build: ./app
     env_file: ./.env
-    depends_on: [clickhouse, minio]
-    ports: ["8080:8080"]
+    depends_on:
+      - clickhouse
+      - minio
+    environment:
+      - PHOTOS_ROOT=/photos
+      - CH_HOST=clickhouse
+      - CH_PORT=8123
+      - CH_USER=app
+      - CH_PASSWORD=supersecret
+      - CH_DATABASE=photos
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-admin}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-admin12345}
+    ports:
+      - "8080:8080"
     volumes:
       - /mnt/unraid/storage/Photos:/photos:ro
     restart: unless-stopped
@@ -39,7 +57,22 @@ services:
   ingest:
     build: ./ingest
     env_file: ./.env
-    depends_on: [clickhouse, minio]
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    environment:
+      - PHOTOS_ROOT=/photos        # IMPORTANT: not empty
+      - CH_HOST=clickhouse         # matches service name above
+      - CH_PORT=8123
+      - CH_USER=app
+      - CH_PASSWORD=supersecret
+      - CH_DATABASE=photos
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-admin}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-admin12345}
+      - MINIO_BUCKET=photo-thumbs
     volumes:
       - /mnt/unraid/storage/Photos:/photos:ro
     restart: unless-stopped
@@ -47,9 +80,13 @@ services:
   dagster:
     build: ./dagster
     env_file: ./.env
-    depends_on: [clickhouse, app]
-    ports: ["3000:3000"]
-    volumes: ["./dagster:/opt/dagster"]
+    depends_on:
+      - clickhouse
+      - app
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./dagster:/opt/dagster
     restart: unless-stopped
 
 volumes:
